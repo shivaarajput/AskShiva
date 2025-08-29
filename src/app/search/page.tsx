@@ -1,5 +1,3 @@
-'use server';
-
 import type { Answer, Question, User, UserProfile, SubjectAnswers } from '@/types';
 
 // --- Dummy Data ---
@@ -233,7 +231,7 @@ function transformQuestion(
   const title = textContent.split('\n')[0] || 'Question';
   
   // Attempt to remove the title from the content to avoid duplication
-  const contentWithoutTitle = processedContent.replace(new RegExp(`<h3>${title.replace(/[^a-zA-Z0-9 ]/g, '')}</h3>`),'');
+  const contentWithoutTitle = processedContent.replace(new RegExp(`<h3>${title.replace(/[^a-zA-Z0-9 ]/g, '')}<\/h3>`),'');
 
   return {
     id: brainlyQuestion.id.toString(),
@@ -270,32 +268,26 @@ interface BrainlyArchiveQuestion {
 
 async function fetchFromBrainly(endpoint: string) {
     if (!BASE_URL) {
-      console.error('BRAINLY_API_BASE_URL is not defined in the environment. Using dummy data.');
-      return null;
+      throw new Error('BRAINLY_API_BASE_URL is not defined in the environment.');
     }
     const url = `${BASE_URL}${endpoint}`;
-    try {
-        const res = await fetch(url, { headers });
-        if (!res.ok) {
-            console.error(`Brainly API fetch failed for url: ${url} with status ${res.status}`);
-            return null;
-        }
-        return res.json();
-    } catch (error) {
-        console.error(`Brainly API fetch failed for url: ${url}`, error);
-        return null;
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+        console.error(`Brainly API fetch failed for url: ${url}`);
+        throw new Error(`Brainly API fetch failed: ${res.status} ${res.statusText}`);
     }
+    return res.json();
 }
 
 export async function getQuestions(): Promise<Question[]> {
-  const json = await fetchFromBrainly('/api_archive/questions');
-  
-  if (!json || !json.data) {
-      console.error('Unexpected response structure from getQuestions or API fetch failed. Using dummy questions.');
-      return dummyQuestions;
-  }
-
   try {
+    const json = await fetchFromBrainly('/api_archive/questions');
+    
+    if (!json.data) {
+        console.error('Unexpected response structure from getQuestions:', json);
+        return dummyQuestions;
+    }
+
     return json.data.map((item: BrainlyArchiveQuestion) => {
         const questionData: BrainlyQuestion = {
             id: item.id,
@@ -318,36 +310,33 @@ export async function getQuestions(): Promise<Question[]> {
         }
     });
   } catch (error) {
-    console.error('Error transforming questions, returning dummy questions:', error);
+    console.error('Error in getQuestions:', error);
     return dummyQuestions;
   }
 }
 
 export async function getQuestionById(id: string): Promise<Question | undefined> {
-  const json: BrainlyQuestionResponse | null = await fetchFromBrainly(`/api_tasks/main_view/${id}`);
-  
-  if (!json || !json.data || !json.data.task) {
-    console.error(`Failed to fetch question ${id} or received unexpected structure. Using dummy question.`);
-    return dummyQuestions.find(q => q.id === '99991');
-  }
-  
   try {
+    const json: BrainlyQuestionResponse = await fetchFromBrainly(`/api_tasks/main_view/${id}`);
     const { task, responses } = json.data;
     const users = json.users_data;
+
+    if (!task) return dummyQuestions.find(q => q.id === '99991');
+
     return {
       ...transformQuestion(task, users),
       answers: responses.map(r => transformAnswer(r, users)),
     };
   } catch (error) {
-    console.error(`Error transforming question ${id}, returning dummy question:`, error);
+    console.error(`Error in getQuestionById (${id}):`, error);
     return dummyQuestions.find(q => q.id === '99991');
   }
 }
 
 export async function searchQuestions(query: string): Promise<Question[]> {
-  if (!query) return [];
-  
   try {
+    if (!query) return [];
+  
     const questions = await getQuestions();
     const lowerCaseQuery = query.toLowerCase();
   
@@ -355,51 +344,47 @@ export async function searchQuestions(query: string): Promise<Question[]> {
       q.title.toLowerCase().includes(lowerCaseQuery)
     );
   } catch (error) {
-    console.error('Error in searchQuestions, returning dummy questions:', error);
+    console.error('Error in searchQuestions:', error);
     const lowerCaseQuery = query.toLowerCase();
     return dummyQuestions.filter(q => q.title.toLowerCase().includes(lowerCaseQuery));
   }
 }
 
 export async function getUserById(id: string): Promise<UserProfile | undefined> {
-  const json: BrainlyUserProfileResponse | null = await fetchFromBrainly(`/api_user_profiles/get_by_id/${id}`);
-
-  if (!json || !json.data) {
-    console.error(`Failed to fetch user ${id} or received unexpected structure. Using dummy profile.`);
-    return dummyUserProfile;
-  }
-  
   try {
+    const json: BrainlyUserProfileResponse = await fetchFromBrainly(`/api_user_profiles/get_by_id/${id}`);
     const profile = json.data;
 
+    if (!profile) return dummyUserProfile;
+
     const subjectMap: { [key: number]: string } = {
-      '1': 'Hindi',
-      '2': 'Math',
-      '3': 'History',
-      '4': 'English',
-      '5': 'Geography',
-      '6': 'Biology',
-      '7': 'Physics',
-      '8': 'Chemistry',
-      '9': 'Social Sciences',
-      '10': 'Environmental Sciences',
-      '11': 'Computer Science',
-      '12': 'India Languages',
-      '13': 'Chinese',
-      '14': 'French',
-      '15': 'World Languages',
-      '16': 'Art',
-      '17': 'Music',
-      '18': 'Science',
-      '19': 'Economy',
-      '20': 'Political Science',
-      '21': 'Sociology',
-      '22': 'Business Studies',
-      '23': 'Psychology',
-      '24': 'Accountancy',
-      '25': 'CBSE BOARD X',
-      '26': 'CBSE BOARD XII'
-    };
+        '1': 'Hindi',
+        '2': 'Math',
+        '3': 'History',
+        '4': 'English',
+        '5': 'Geography',
+        '6': 'Biology',
+        '7': 'Physics',
+        '8': 'Chemistry',
+        '9': 'Social Sciences',
+        '10': 'Environmental Sciences',
+        '11': 'Computer Science',
+        '12': 'India Languages',
+        '13': 'Chinese',
+        '14': 'French',
+        '15': 'World Languages',
+        '16': 'Art',
+        '17': 'Music',
+        '18': 'Science',
+        '19': 'Economy',
+        '20': 'Political Science',
+        '21': 'Sociology',
+        '22': 'Business Studies',
+        '23': 'Psychology',
+        '24': 'Accountancy',
+        '25': 'CBSE BOARD X',
+        '26': 'CBSE BOARD XII'
+      };
 
     const answersBySubject: SubjectAnswers[] = profile.answers_by_subject
       .map(s => ({
@@ -424,7 +409,7 @@ export async function getUserById(id: string): Promise<UserProfile | undefined> 
       answersBySubject,
     };
   } catch (error) {
-    console.error(`Error transforming user profile ${id}, returning dummy profile:`, error);
+    console.error(`Error in getUserById (${id}):`, error);
     return dummyUserProfile;
   }
 }
